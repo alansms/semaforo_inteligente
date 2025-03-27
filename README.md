@@ -1,101 +1,88 @@
-# Projeto Semáforo Inteligente com Raspberry Pi Pico W
+# Projeto Semáforo Inteligente em MicroPython (ESP32)
 
-Este projeto implementa um semáforo inteligente, com controle remoto via MQTT e interface web para monitoramento em tempo real. Além disso, há sincronização de horário via NTP e animações de LEDs WS2812B para representar os estados do semáforo (verde, amarelo e vermelho).
+Este projeto implementa um semáforo inteligente rodando em **MicroPython** diretamente em uma placa **ESP32**, oferecendo:
 
----
-
-## Recursos Principais
-
-1. **Wi-Fi (STA)**  
-   - O Raspberry Pi Pico W conecta-se a uma rede Wi-Fi configurada em `CONFIG["EXTERNAL_SSID"]` e `CONFIG["EXTERNAL_PASS"]`.
-
-2. **MQTT Broker Minimalista**  
-   - O dispositivo atua como um servidor MQTT na porta definida em `CONFIG["MQTT_PORT"]`.
-   - Quando recebe mensagens no tópico `semaforo/acao` (ou `acao/semaforo`), inicia o ciclo do semáforo (verde → amarelo → vermelho).
-
-3. **Interface Web com Painel de Configurações**  
-   - Exibe o estado do semáforo e um log de eventos.
-   - Permite baixar o log em CSV e possui um painel de configurações de rede (simulado).
-
-4. **NTP para Sincronização de Horário**  
-   - Periodicamente, o código atualiza o relógio do sistema via NTP.
-
-5. **Logs de Eventos**  
-   - Mantém um buffer circular de registros (tamanho máximo em `CONFIG["MAX_LOG_LINES"]`).
-   - Os registros são exibidos no console e pela interface web.
-
-6. **LEDs WS2812B (NeoPixel)**  
-   - Mostram visualmente o estado do semáforo.
-   - Pin definido em `WS2812_PIN` e número de LEDs em `NUM_LEDS`.
+1. **Conexão Wi-Fi** em modo estação, permitindo integração com internet e redes locais.  
+2. **Servidor MQTT** embutido, recebendo comandos para acionar transições do semáforo.  
+3. **Animações do semáforo** (verde, amarelo, vermelho) com controle de LEDs WS2812B (Neopixel).  
+4. **Interface Web** para visualização em tempo real do estado do semáforo, logs e painel de configurações.  
+5. **Sincronização de horário via NTP** para manter o relógio do dispositivo alinhado.
 
 ---
+## Principais Funcionalidades
 
+1. **MicroPython no ESP32**  
+   - O código roda inteiramente em **MicroPython** gravado na memória flash do **ESP32**.  
+   - Aproveita as bibliotecas nativas (e.g. `network`, `uasyncio`) para lidar com Wi-Fi, sockets, e corrotinas.
+
+2. **Conexão Wi-Fi (estação)**  
+   - Após iniciar, o ESP32 conecta-se à rede configurada em `CONFIG["EXTERNAL_SSID"]` e `CONFIG["EXTERNAL_PASS"]`.  
+   - Possível adaptar para modo AP ou AP+STA se o firmware ESP32 suportar.
+
+3. **Servidor MQTT minimalista**  
+   - O dispositivo atua como **broker** e escuta em `CONFIG["MQTT_PORT"]`.  
+   - Mensagens no tópico `semaforo/acao` (ou `acao/semaforo`) disparam o ciclo do semáforo.  
+   - Log detalhado de cada conexão e publicação.
+
+4. **Ciclo do Semáforo**  
+   - `semaforo_sequence()` executa (verde → amarelo → vermelho) com durações definidas em `CONFIG["CYCLE_TIMES"]`.  
+   - LEDs WS2812B são atualizados a cada transição.
+
+5. **Interface Web (HTTP)**  
+   - Apresenta um painel HTML com o estado do semáforo e log de eventos em tempo real.  
+   - Permite baixar o log em CSV e exibir/ocultar o painel de configurações (SSID e senha de rede).  
+   - Responde no IP do ESP32 na porta 80 (exemplo: `http://192.168.1.123/`).
+
+6. **Sincronização de Horário (NTP)**  
+   - `ntp_update_loop()` roda em paralelo usando `uasyncio`, atualizando o relógio do dispositivo com o host `CONFIG["NTP_HOST"]`.
+
+---
 ## Estrutura do Código
 
-- **`CONFIG`**: Dicionário com parâmetros de rede, MQTT, NTP e tempos do semáforo.
-- **`semaforo_state`**: Estado global do semáforo (`"green"`, `"yellow"`, `"red"`).
-- **`log_event()`**: Função de log que imprime no console e guarda registros no buffer `global_log`.
-- **`ntp_update_loop()`**: Tarefa assíncrona para atualização de hora via NTP.
-- **`config_network()`**: Conecta o Pico W em modo estação (`STA`) à rede Wi-Fi externa.
-- **`semaforo_sequence()`**: Corrotina (async) que realiza o ciclo do semáforo quando acionado via MQTT.
-- **`handle_mqtt_client()`**: Lida com novas conexões MQTT, interpretando mensagens de `PUBLISH`.
-- **`mqtt_server()`**: Tarefa assíncrona que inicia o servidor MQTT.
-- **`update_panel(state)`**: Define a cor dos LEDs WS2812B (verde, amarelo, vermelho).
-- **`http_handler()`**: Atende requisições HTTP, exibindo a interface e status do semáforo em JSON.
-- **`http_server()`**: Tarefa assíncrona que inicia o servidor HTTP na porta 80.
-- **`main()`**: Cria e inicia as corrotinas (MQTT, HTTP, NTP) e mantém o loop principal.
+- **`CONFIG`**: Armazena SSIDs, senhas, porta MQTT, configurações NTP e tempos do semáforo.
+- **`update_panel()`** (ou similar): Ativa os LEDs WS2812B, definindo cores conforme estado (`green`, `yellow`, `red`).
+- **`log_event()`**: Função de log que imprime no console e armazena histórico em `global_log`.
+- **`semaforo_sequence()`**: Ciclo completo do semáforo, usando `uasyncio` para `sleep` entre estados.
+- **`handle_mqtt_client()`**: Trata conexões e mensagens MQTT, disparando o semáforo quando apropriado.
+- **`http_handler()`**: Lida com requisições HTTP, oferecendo JSON (`/status`) e uma página HTML com o painel de controle.
+- **`main()`**: Tarefa principal que inicia MQTT, HTTP e o loop de NTP em corrotinas (`uasyncio.create_task()`).
 
 ---
+## Como Executar no ESP32
 
-## Como Usar
+1. **Instale MicroPython** no ESP32  
+   - Use `esptool.py` ou o plugin de firmware no IDE (ex: Thonny) para gravar um binário MicroPython compatível com ESP32.
 
-1. **Gravar Firmware Adequado**  
-   - Baixe e grave no Pico W o firmware MicroPython compatível (ex.: `rp2-pico-w-v1.22.x.uf2` ou superior).
+2. **Carregue o Script**  
+   - Conecte via USB, abra o Thonny ou ampy e envie o arquivo `.py` para o ESP32.
 
-2. **Editar Parâmetros**  
-   - Ajuste `CONFIG["EXTERNAL_SSID"]` e `CONFIG["EXTERNAL_PASS"]` para sua rede Wi-Fi.
-   - Ajuste `WS2812_PIN` e `NUM_LEDS` para corresponder ao hardware de LEDs.
+3. **Configure Wi-Fi**  
+   - Edite `CONFIG["EXTERNAL_SSID"]` e `CONFIG["EXTERNAL_PASS"]` com as credenciais da sua rede.
 
-3. **Carregar no Thonny**  
-   - Conecte o Pico W e abra o Thonny.
-   - Copie o arquivo `.py` para o Pico W.
+4. **Rode o Código**  
+   - Importe o script no REPL (`import semaforo`) ou defina-o como `main.py`.  
+   - O ESP32 tentará conectar à rede Wi-Fi e iniciará o servidor MQTT e HTTP.
 
-4. **Executar**  
-   - Selecione `Run current script` no Thonny ou `import semaforo_script`.
-   - Observe no console os logs de conexão à rede, de inicialização do MQTT e do semáforo.
+5. **Teste MQTT**  
+   - Use um cliente MQTT (p. ex. MQTT Explorer) para publicar em `semaforo/acao`.  
+   - Observe no console (log) o ciclo do semáforo, e a cor dos LEDs WS2812B mudando no hardware.
 
-5. **Testar via MQTT**  
-   - Use um cliente MQTT (e.g. MQTT Explorer), conecte ao IP do Pico W na porta `1883`.
-   - Publique em `semaforo/acao` (payload vazio ou qualquer texto).  
-   - O semáforo inicia o ciclo: verde → amarelo → vermelho → volta a verde.
-
-6. **Interface Web**  
-   - Acesse `http://<ip_do_pico>` pelo navegador.
-   - A página exibe o estado do semáforo e um painel de logs em tempo real.
+6. **Acesse a Interface Web**  
+   - No navegador, digite `http://<ip_esp32>` para abrir o painel do semáforo, logs e configurações.
 
 ---
+## Resolvendo Erros Comuns
 
-## Resolvendo Problemas
-
-- **Falha ao iniciar Wi-Fi** (`[CYW43] Failed to start CYW43`):  
-  - Reinstale o firmware MicroPython específico para o Pico W.
-  - Verifique se está alimentado por uma porta USB confiável.
-
-- **MQTT não recebe mensagens**:  
-  - Confirme o IP do Pico W (exibido no console).
-  - Verifique se a porta `1883` está acessível na rede.
-
-- **NTP não funciona**:  
-  - Ajuste `CONFIG["NTP_HOST"]` para outro servidor ou verifique se há acesso à internet.
-
-- **Semáforo não muda cor**:  
-  - Confira se os LEDs WS2812B estão alimentados e conectados ao pino configurado.
-  - Altere `update_panel(state)` conforme seu hardware.
+- **`OSError: [Errno 2] ENOMEM`** ou falhas de memória:  
+  - Reduza o uso de buffers e logs, ou use firmware ESP32 com partição “psRAM” (se disponível em seu módulo).
+- **Sem Wi-Fi** (`network.WLAN()` não funciona):  
+  - Verifique se o firmware MicroPython corresponde ao chip ESP32.  
+  - Alguns firmwares de terceiros desabilitam Wi-Fi.
+- **Falha ao acionar semáforo**:  
+  - Confira logs no console para ver se o MQTT recebeu mensagem no tópico correto.  
+  - Verifique se o script se refere ao pino correto para controlar os LEDs.
 
 ---
-
 ## Licença
 
-Este projeto é disponibilizado sob a [Licença MIT](LICENSE). Use livremente em fins acadêmicos ou comerciais, mantendo os devidos créditos.
-
----
+Licenciado sob a [Licença MIT](LICENSE). Use e modifique livremente, lembrando de manter o crédito aos colaboradores.
